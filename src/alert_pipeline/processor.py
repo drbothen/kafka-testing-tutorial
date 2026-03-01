@@ -80,8 +80,39 @@ class EventProcessor:
         )
         self.producer = Producer({"bootstrap.servers": bootstrap_servers})
         self.db_conn = psycopg2.connect(db_url)
+        self._ensure_schema()
         self._db_batch: list[tuple] = []
         self._pending_offsets: list = []
+
+    # ------------------------------------------------------------------
+    # Schema
+    # ------------------------------------------------------------------
+
+    def _ensure_schema(self):
+        """Create the alerts table if it doesn't exist.
+
+        Makes the processor self-bootstrapping: it can start against an
+        empty database without external schema migration scripts.
+        """
+        cursor = self.db_conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS alerts (
+                alert_id VARCHAR(255) PRIMARY KEY,
+                source_id VARCHAR(255) NOT NULL,
+                metric_name VARCHAR(255) NOT NULL,
+                value FLOAT NOT NULL,
+                threshold FLOAT NOT NULL,
+                severity VARCHAR(50) NOT NULL,
+                triggered_at TIMESTAMPTZ NOT NULL,
+                correlation_id VARCHAR(255)
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_alerts_correlation_id
+            ON alerts (correlation_id)
+        """)
+        self.db_conn.commit()
+        cursor.close()
 
     # ------------------------------------------------------------------
     # Lifecycle
